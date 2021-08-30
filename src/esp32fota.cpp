@@ -36,42 +36,69 @@ static void splitHeader(String src, String &header, String &headerValue)
 // OTA Logic
 void esp32FOTA::execOTA()
 {
+    bool hasSPIFFS = (String(_spiffs) != "");
+    // flash spiffs first without restarting
+    if(hasSPIFFS) {
+        execOTA(U_SPIFFS);
+    }
+    // flash the app
+    execOTA(U_FLASH);
+    ESP.restart();
+}
 
-    WiFiClient client;
+void esp32FOTA::execOTA(int partition)
+{
+    // WiFiClient client;
+    String binFilePath = "";
     int contentLength = 0;
     bool isValidContentType = false;
     bool gotHTTPStatus = false;
 
+    switch(partition) {
+        case U_SPIFFS:
+            if(String(_spiffs) == "") {
+                Serial.println("No spiffs binary was specified, job finished");
+                return;
+            }
+            binFilePath = String(_spiffs);
+            break;
+        case U_FLASH:
+        default:
+            partition = U_FLASH;
+            binFilePath = String(_bin);
+            break;
+    }
+
     Serial.println("Connecting to: " + String(_host));
     // Connect to Webserver
-    if (client.connect(_host.c_str(), _port))
+    if (clientForOta.connect(_host.c_str(), _port))
     {
         // Connection Succeed.
         // Fetching the bin
-        Serial.println("Fetching Bin: " + String(_bin));
+        Serial.println("Fetching Bin: " + binFilePath);
 
         // Get the contents of the bin file
-        client.print(String("GET ") + _bin + " HTTP/1.1\r\n" +
+        clientForOta.print(String("GET ") + binFilePath + " HTTP/1.1\r\n" +
                      "Host: " + _host + "\r\n" +
                      "Cache-Control: no-cache\r\n" +
                      "Connection: close\r\n\r\n");
 
         unsigned long timeout = millis();
-        while (client.available() == 0)
+        while (clientForOta.available() == 0)
         {
             if (millis() - timeout > 5000)
             {
                 Serial.println("Client Timeout !");
-                client.stop();
+                clientForOta.stop();
                 return;
             }
         }
 
-        while (client.available())
+        while (clientForOta.available())
         {
             String header, headerValue;
             // read line till /n
-            String line = client.readStringUntil('\n');
+            String line = clientForOta.readStringUntil('\n');
             // remove space, to check if the line is end of headers
             line.trim();
 
@@ -88,7 +115,7 @@ void esp32FOTA::execOTA()
                 if (line.indexOf("200") < 0)
                 {
                     Serial.println("Got a non 200 status code from server. Exiting OTA Update.");
-                    client.stop();
+                    clientForOta.stop();
                     break;
                 }
                 gotHTTPStatus = true;
@@ -139,7 +166,7 @@ void esp32FOTA::execOTA()
     if (contentLength && isValidContentType)
     {
         // Check if there is enough to OTA Update
-        bool canBegin = Update.begin(contentLength);
+        bool canBegin = Update.begin(contentLength, partition);
 
         // If yes, begin
         if (canBegin)
@@ -147,7 +174,7 @@ void esp32FOTA::execOTA()
             Serial.println("Begin OTA. This may take 2 - 5 mins to complete. Things might be quiet for a while.. Patience!");
             // No activity would appear on the Serial monitor
             // So be patient. This may take 2 - 5mins to complete
-            size_t written = Update.writeStream(client);
+            size_t written = Update.writeStream(clientForOta);
 
             if (written == contentLength)
             {
@@ -184,13 +211,13 @@ void esp32FOTA::execOTA()
             // Understand the partitions and
             // space availability
             Serial.println("Not enough space to begin OTA");
-            client.flush();
+            clientForOta.flush();
         }
     }
     else
     {
         Serial.println("There was no content in the response");
-        client.flush();
+        clientForOta.flush();
     }
 }
 
@@ -242,13 +269,17 @@ bool esp32FOTA::execHTTPcheck()
             const char *plhost = JSONDocument["host"];
             _port = JSONDocument["port"];
             const char *plbin = JSONDocument["bin"];
+            const char *plspiffs = JSONDocument["spiffs"];
             _payloadVersion = plversion;
+
 
             String jshost(plhost);
             String jsbin(plbin);
+            String jsspiffs(plspiffs);
 
             _host = jshost;
             _bin = jsbin;
+            _spiffs = jsspiffs;
 
             String fwtype(pltype);
 
@@ -276,10 +307,11 @@ String esp32FOTA::getDeviceID()
 }
 
 // Force a firmware update regartless on current version
-void esp32FOTA::forceUpdate(String firmwareHost, int firmwarePort, String firmwarePath)
+void esp32FOTA::forceUpdate(String firmwareHost, int firmwarePort, String firmwarePath, String spiffsPath)
 {
     _host = firmwareHost;
     _bin = firmwarePath;
+    _spiffs = spiffsPath;
     _port = firmwarePort;
     execOTA();
 }
@@ -309,6 +341,7 @@ typedef struct
     int port;
     String host;
     String bin;
+    String spiffs;
     String type;
 } OTADescription;
 
@@ -413,6 +446,7 @@ bool secureEsp32FOTA::execHTTPSCheck()
     description->host = JSONDocument["host"].as<String>();
     description->version = JSONDocument["version"].as<int>();
     description->bin = JSONDocument["bin"].as<String>();
+    description->spiffs = JSONDocument["spiffs"].as<String>();
     _payloadVersion = description->version;
 
     clientForOta.stop();
@@ -421,6 +455,7 @@ bool secureEsp32FOTA::execHTTPSCheck()
     {
         locationOfFirmware = description->host;
         _bin = description->bin;
+        _spiffs = description->spiffs;
         return true;
     }
 
@@ -454,7 +489,35 @@ server, url and certificate.
 
 void secureEsp32FOTA::executeOTA()
 {
-    Serial.println("location of fw " + String(locationOfFirmware) + _bin + " HTTP/1.0");
+    bool hasSPIFFS = (String(_spiffs) != "");
+    // flash spiffs first without restarting
+    if(hasSPIFFS) {
+        executeOTA(U_SPIFFS);
+    }
+    // flash the app
+    executeOTA(U_FLASH);
+    ESP.restart();
+}
+
+void secureEsp32FOTA::executeOTA(int partition)
+{
+    String binFilePath = "";
+    switch(partition) {
+        case U_SPIFFS:
+            if(String(_spiffs) == "") {
+                Serial.println("No spiffs binary was specified, job finished");
+                return;
+            }
+            binFilePath = String(_spiffs);
+            break;
+        case U_FLASH:
+        default:
+            partition = U_FLASH;
+            binFilePath = String(_bin);
+            break;
+    }
+
+    Serial.println("location of fw " + String(locationOfFirmware) + binFilePath + " HTTP/1.0");
 
     bool canCorrectlyConnectToServer = prepareConnection(locationOfFirmware);
     int contentLength = 0;
@@ -464,7 +527,7 @@ void secureEsp32FOTA::executeOTA()
     {
         //Serial.println("ok");
 
-        clientForOta.println("GET https://" + String(locationOfFirmware) + _bin + " HTTP/1.0");
+        clientForOta.println("GET https://" + String(locationOfFirmware) + binFilePath + " HTTP/1.0");
         clientForOta.println("Host: " + String(locationOfFirmware) + "");
         clientForOta.println("Connection: close");
         clientForOta.println();
@@ -517,7 +580,7 @@ void secureEsp32FOTA::executeOTA()
         if (contentLength && isValid)
         {
             //Serial.println("beginn");
-            bool canBegin = Update.begin(contentLength);
+            bool canBegin = Update.begin(contentLength, partition);
             if (canBegin)
             {
                 //Serial.println("Begin OTA. This may take 2 - 5 mins to complete. Things might be quite for a while.. Patience!");
