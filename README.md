@@ -4,7 +4,9 @@
 
 ## Purpose
 
-A simple library to add support for Over-The-Air (OTA) updates to your project.
+A simple library to add support for Over-The-Air (OTA) updates to your project. Forked from [https://github.com/chrisjoyce911/esp32FOTA](https://github.com/chrisjoyce911/esp32FOTA)
+
+The original project had grown stale with un-merged PRs. The intention of this fork is to update the lib to make it more useful for full-featured projects.
 
 ## Features
 
@@ -12,6 +14,8 @@ A simple library to add support for Over-The-Air (OTA) updates to your project.
 - [x] Batch firmware sync
 - [x] Force firmware update [issues 8]
 - [x] https support [#26][i26] ( Thanks to @fbambusi )
+- [x] SPIFFS updates ( Thanks to [@tobozo](https://github.com/tobozo) )
+- [x] Semantic Version support via ( [semver.c](https://github.com/h2non/semver.c) )
 - [ ] Multi firmware update record
 - [ ] Stream update (e.g. MQTT or other)
 - [ ] Checking for update via bin headers [issue 15]
@@ -36,10 +40,11 @@ This is hosted by a webserver and contains information about the latest firmware
 ```json
 {
     "type": "esp32-fota-http",
-    "version": 2,
+    "version": "2.0",
     "host": "192.168.0.100",
     "port": 80,
-    "bin": "/fota/esp32-fota-http-2.bin"
+    "bin": "/fota/esp32-fota-http-2.ino.bin",
+    "spiffs": "/fota/esp32-fota-http-2.spiffs.bin"
 }
 ```
 
@@ -71,7 +76,7 @@ In this example a version 1  of 'esp32-fota-http' is in use, it would be updated
 const char *ssid = "";
 const char *password = "";
 
-esp32FOTA esp32FOTA("esp32-fota-http", 1);
+esp32FOTA esp32FOTA("esp32-fota-http", "1.0");
 
 void setup()
 {
