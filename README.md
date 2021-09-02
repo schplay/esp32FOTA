@@ -30,6 +30,7 @@ There are a few things that need to be in place for an update to work.
 - Firmware version
 - Firmware type
 - Firmware bin
+- SPIFFS bin
 
 ## Usage
 
