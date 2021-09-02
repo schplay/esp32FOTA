@@ -14,7 +14,9 @@
 
 #include <WiFiClientSecure.h>
 
-esp32FOTA::esp32FOTA(String firwmareType, int firwmareVersion)
+#include "semver.c/semver.h"
+
+esp32FOTA::esp32FOTA(String firwmareType, String firwmareVersion)
 {
     _firwmareType = firwmareType;
     _firwmareVersion = firwmareVersion;
@@ -265,26 +267,41 @@ bool esp32FOTA::execHTTPcheck()
             }
 
             const char *pltype = JSONDocument["type"];
-            int plversion = JSONDocument["version"];
+            const char *plversion = JSONDocument["version"];
             const char *plhost = JSONDocument["host"];
             _port = JSONDocument["port"];
             const char *plbin = JSONDocument["bin"];
             const char *plspiffs = JSONDocument["spiffs"];
-            _payloadVersion = plversion;
-
+            
 
             String jshost(plhost);
             String jsbin(plbin);
             String jsspiffs(plspiffs);
+            String jsversion(plversion);
 
             _host = jshost;
             _bin = jsbin;
             _spiffs = jsspiffs;
+            _payloadVersion = jsversion;
 
             String fwtype(pltype);
 
-            if (plversion > _firwmareVersion && fwtype == _firwmareType) {
-                return true;
+            if (fwtype == _firwmareType) {
+                semver_t current_version = {};
+                semver_t compare_version = {};
+
+                if(semver_parse(_firwmareVersion.c_str(), &current_version) || semver_parse(_payloadVersion.c_str(), &compare_version)) {
+                    return false;
+                }
+
+                int resolution = semver_compare(compare_version, current_version);
+                semver_free(&current_version);
+                semver_free(&compare_version);
+                if(resolution == 0 || resolution == -1) {
+                    return false;
+                } else {
+                    return true;
+                }
             }
         }
         else {
@@ -319,7 +336,7 @@ void esp32FOTA::forceUpdate(String firmwareHost, int firmwarePort, String firmwa
 /**
  * This function return the new version of new firmware
  */
-int esp32FOTA::getPayloadVersion(){
+String esp32FOTA::getPayloadVersion(){
     return _payloadVersion;
 }
 
@@ -337,7 +354,7 @@ the version of the firmware
 */
 typedef struct
 {
-    int version;
+    String version;
     int port;
     String host;
     String bin;
@@ -350,7 +367,7 @@ The constructor sets only the firmware type and its versions, as these two
 parameters are hardcoded in the device. The other parameters have to be set 
 separately.
 */
-secureEsp32FOTA::secureEsp32FOTA(String firwmareType, int firwmareVersion)
+secureEsp32FOTA::secureEsp32FOTA(String firwmareType, String firwmareVersion)
 {
     _firwmareType = firwmareType;
     _firwmareVersion = firwmareVersion;
@@ -444,19 +461,38 @@ bool secureEsp32FOTA::execHTTPSCheck()
     description->type = JSONDocument["type"].as<String>();
 
     description->host = JSONDocument["host"].as<String>();
-    description->version = JSONDocument["version"].as<int>();
+    description->version = JSONDocument["version"].as<String>();
     description->bin = JSONDocument["bin"].as<String>();
     description->spiffs = JSONDocument["spiffs"].as<String>();
     _payloadVersion = description->version;
 
     clientForOta.stop();
 
-    if (description->version > _firwmareVersion && description->type == _firwmareType)
+    if (description->type == _firwmareType)
     {
         locationOfFirmware = description->host;
         _bin = description->bin;
         _spiffs = description->spiffs;
-        return true;
+//description->version > _firwmareVersion && 
+
+        semver_t current_version = {};
+        semver_t compare_version = {};
+
+        if(semver_parse(_firwmareVersion.c_str(), &current_version) || semver_parse(description->version.c_str(), &compare_version)) {
+            return false;
+        }
+
+        int resolution = semver_compare(compare_version, current_version);
+        semver_free(&current_version);
+        semver_free(&compare_version);
+        if(resolution == 0 || resolution == -1) {
+            return false;
+        } else {
+            return true;
+        }
+
+
+        // return true;
     }
 
     return false;
@@ -465,7 +501,7 @@ bool secureEsp32FOTA::execHTTPSCheck()
 /**
  * This function return the new version of new firmware
  */
-int secureEsp32FOTA::getPayloadVersion() {
+String secureEsp32FOTA::getPayloadVersion() {
     return _payloadVersion;
 }
 
